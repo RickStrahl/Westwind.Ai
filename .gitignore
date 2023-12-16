@@ -361,4 +361,6 @@ MigrationBackup/
 
 # Fody - auto-generated XML schema
 FodyWeavers.xsd
-/Westwind.Ai.Test/_TestConfiguration-NoGit.json
+
+
+/Westwind.Ai.Test/__TestConfiguration-NoGit.json
