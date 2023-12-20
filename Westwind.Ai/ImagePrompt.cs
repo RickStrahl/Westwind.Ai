@@ -11,7 +11,15 @@ namespace Westwind.Ai;
 /// </summary>
 public class ImagePrompt : INotifyPropertyChanged
 {    
-    #region Properties
+
+    public static string DefaultImageStoragePath = Path.Combine(Path.GetTempPath(),"OpenAi-Images","Images");
+
+    #region Input Properties
+
+
+    /// <summary>
+    /// The prompt text to use to generate the image
+    /// </summary>
     public string Prompt
     {
         get => _prompt;
@@ -39,6 +47,17 @@ public class ImagePrompt : INotifyPropertyChanged
         }
     }
 
+    /// <summary>
+    /// Values dall-e-3 (default) or dall-e-2
+    /// * 1024x1024  (default)
+    /// * 1792x1024
+    /// * 1024x1792
+    /// 
+    /// Values: dall-e-2
+    /// * 1024x1024
+    /// * 512x512
+    /// * 256x256
+    /// </summary>
     public string ImageSize
     {
         get => _imageSize;
@@ -50,6 +69,11 @@ public class ImagePrompt : INotifyPropertyChanged
         }
     }
 
+    /// <summary>
+    /// Values:
+    /// * vivid  (default)
+    /// * natural
+    /// </summary>
     public string ImageStyle
     {
         get => _imageStyle;
@@ -61,6 +85,11 @@ public class ImagePrompt : INotifyPropertyChanged
         }
     }
 
+    /// <summary>
+    /// Values:
+    /// * standard
+    /// * hd
+    /// </summary>
     public string ImageQuality
     {
         get => _imageQuality;
@@ -72,6 +101,9 @@ public class ImagePrompt : INotifyPropertyChanged
         }
     }
 
+    /// <summary>
+    /// For Dall-e-3 this is always 1
+    /// </summary>
     public int ImageCount
     {
         get => _imageCount;
@@ -83,6 +115,11 @@ public class ImagePrompt : INotifyPropertyChanged
         }
     }
 
+    /// <summary>
+    /// Values:
+    /// * dall-e-3 (default)
+    /// * dall-e-2 
+    /// </summary>
     public string Model
     {
         get => _model;
@@ -94,8 +131,11 @@ public class ImagePrompt : INotifyPropertyChanged
         }
     }
 
+    #endregion
 
-    public string[] ImageUrls
+    #region Result Properties
+
+    public ImageResult[] ImageUrls
     {
         get => _imageUrls;
         set
@@ -105,37 +145,68 @@ public class ImagePrompt : INotifyPropertyChanged
             OnPropertyChanged();
             OnPropertyChanged(nameof(FirstImageUrl));
             OnPropertyChanged(nameof(FirstImageUri));
+            OnPropertyChanged(nameof(FirstImage));
+            OnPropertyChanged(nameof(HasImageFile));
+            OnPropertyChanged(nameof(IsEmpty));
+            OnPropertyChanged(nameof(RevisedPrompt));
+            OnPropertyChanged(nameof(HasRevisedPrompt));            
+        }
+    }
+
+
+    [JsonIgnore]
+    /// <summary>
+    /// If data is downloaded in Base64 JSON format
+    /// </summary>
+    public string Base64Data
+    {
+        get
+        {
+            return FirstImage?.Base64Data;
+        }
+    }
+
+
+    [JsonIgnore]
+    public byte[] ByteData
+    {
+        get
+        {
+            return HtmlUtils.EmbeddedBase64ToBinary(Base64Data).bytes;            
         }
     }
 
     public string RevisedPrompt
     {
-        get => _revisedPrompt;
-        set
+        get 
         {
-            if (value == _revisedPrompt) return;
-            _revisedPrompt = value;
-            OnPropertyChanged();
-            OnPropertyChanged(nameof(HasRevisedPrompt));
-        }
+            return FirstImage?.RevisedPrompt;
+        } 
     }
-
 
     /// <summary>
     /// Name of a captured image. File only, no path
+    /// 
+    /// This name is used to save and retrieve a file
+    /// when using DownloadImageToFile() or when reading
+    /// the byte data
     /// </summary>
-    public string ImageFileName
+    public string ImageFilename
     {
-        get => _imageFileName;
+        get => _imageFilename;
         set
         {
-            if (value == _imageFileName) return;
-            _imageFileName = value;
+            if (value == _imageFilename) return;
+            _imageFilename = value;
             OnPropertyChanged();
             OnPropertyChanged(nameof(ImageFilePath));
             OnPropertyChanged(nameof(HasImageFile));            
         }
     }
+
+    #endregion
+
+    #region Helper Properties
 
     /// <summary>
     /// The full path to the image associated with this
@@ -146,49 +217,58 @@ public class ImagePrompt : INotifyPropertyChanged
     {
         get
         {
-            if (string.IsNullOrEmpty(ImageFileName))
-                return ImageFileName;
+            if (string.IsNullOrEmpty(ImageFilename))
+                return ImageFilename;
 
-            return GetImageFilename(ImageFileName);
+            return GetImageFilename(ImageFilename);
         }
     }
 
-
-    
-
     [JsonIgnore]
+    public ImageResult FirstImage
+    {
+        get {
+            return ImageUrls.FirstOrDefault();
+        }
+    }
+
+        [JsonIgnore]
     public string FirstImageUrl {
         get
         {
-            return  ImageUrls.FirstOrDefault();
+            return  ImageUrls.FirstOrDefault()?.Url;
         }
     }
+
 
     [JsonIgnore]
     public Uri FirstImageUri
     {
         get
         {
-            var img =  ImageUrls.FirstOrDefault();
+            var img =  FirstImageUrl;            
             return img != null ? new Uri(img) : null;
         }
     }
 
-
+    [JsonIgnore]
     public bool HasRevisedPrompt =>
         !string.IsNullOrEmpty(RevisedPrompt);
 
+    [JsonIgnore]
     public bool IsEmpty =>
         string.IsNullOrEmpty(Prompt) &&
         string.IsNullOrEmpty(RevisedPrompt) &&
-        string.IsNullOrEmpty(ImageFileName) &&
+        string.IsNullOrEmpty(ImageFilename) &&
         ImageUrls == null;
 
+    [JsonIgnore]
     public bool HasImageFile =>
-        !string.IsNullOrEmpty(ImageFileName)
+        !string.IsNullOrEmpty(ImageFilename)
         && File.Exists(ImageFilePath);
 
 
+    [JsonIgnore]
     public string ImageFolderPath
     {
         get { return _imageFolderPath; }
@@ -203,7 +283,7 @@ public class ImagePrompt : INotifyPropertyChanged
     #endregion
 
 
-    #region Image Access
+    #region URL based Image Access
 
     /// <summary>
     /// Retrieves Base64 Image data from the saved file in
@@ -251,7 +331,7 @@ public class ImagePrompt : INotifyPropertyChanged
     public string GetImageFilename(string fileOnlyName = null)
     {
         if (string.IsNullOrEmpty(fileOnlyName))
-            fileOnlyName = ImageFileName;
+            fileOnlyName = ImageFilename;
         if (string.IsNullOrEmpty(fileOnlyName))
             return fileOnlyName;
 
@@ -285,7 +365,7 @@ public class ImagePrompt : INotifyPropertyChanged
 
         try
         {
-            ImageFileName = await WriteDataToImageFileAsync(data);
+            ImageFilename = await WriteDataToImageFileAsync(data);
         }
         catch
         {
@@ -319,13 +399,11 @@ public class ImagePrompt : INotifyPropertyChanged
             existing = new ImagePrompt();
 
         Prompt = existing.Prompt;
-        RevisedPrompt = existing.RevisedPrompt;
         ImageSize = existing.ImageSize ?? "1024x1024";
         ImageQuality = existing.ImageQuality ?? "standard";
         ImageStyle = existing.ImageStyle ?? "vivid";
         Model = existing.Model ?? "dall-e-3";
        
-
         if (!noImageData)
         {
             ImageUrls = existing.ImageUrls;
@@ -333,6 +411,49 @@ public class ImagePrompt : INotifyPropertyChanged
         
         return existing;
     }
+    #endregion
+
+    #region Base64 Operations
+
+    /// <summary>
+    /// Returns the bytes from Base64 data results
+    /// </summary>
+    /// <returns></returns>
+    public byte[] GetBytesFromBase64()
+    {
+        return FirstImage?.GetBytesFromBase64();
+    }
+
+
+    /// <summary>
+    /// Saves base64 content to a file. If filename is provided
+    /// saves to that file, if no file is provided it goes into the 
+    /// generated images file folder and ImageFilename is set to the
+    /// generated file name on the prompt.
+    /// </summary>
+    /// <param name="filename">Optional - file to write to. If not provided file is created in image storage folder</param>
+    /// <returns></returns>
+    public async Task<string>SaveImageFromBase64(string filename = null)
+    {
+        if (FirstImage == null)
+            return null;
+
+        var imageBytes = FirstImage.GetBytesFromBase64();
+        if (imageBytes == null) return null;
+
+        if (string.IsNullOrEmpty(filename))
+        {
+            // create a new file and store it on the image prompt
+            ImageFilename = await WriteDataToImageFileAsync(imageBytes);
+            return ImageFilePath;
+        }
+
+        await File.WriteAllBytesAsync(filename,imageBytes);       
+        return filename; 
+    }
+
+
+    #endregion
 
     public override string ToString()
     {
@@ -342,7 +463,6 @@ public class ImagePrompt : INotifyPropertyChanged
         return StringUtils.TextAbstract(Prompt, 45);
     }
 
-    #endregion
 
     #region Property Changed
     public event PropertyChangedEventHandler PropertyChanged;
@@ -363,20 +483,116 @@ public class ImagePrompt : INotifyPropertyChanged
     #endregion
 
     #region fields
-    private string[] _imageUrls = new string[] { };
+    private ImageResult[] _imageUrls = new ImageResult[] { };
     private string _prompt;
     private string _imageSize = "1024x1024";
     private int _imageCount = 1;
     private string _imageStyle = "vivid";  // natural
-    private string _imageFileName;
+    private string _imageFilename;
     private string _model = "dall-e-3";
     private string _imageQuality = "standard";
     private string _variationImageFile;
-    private string _revisedPrompt;
-
-    private string _imageFolderPath = Path.Combine(Path.GetTempPath(), "OpenAi-Images", "Images");
-
+    private string _imageFolderPath = ImagePrompt.DefaultImageStoragePath;
 
     #endregion
-
 }
+
+/// <summary>
+/// Class that wraps the an Image result from the OpenAI API.
+/// 
+/// The API returns one or more image responses in an array.
+/// </summary>
+public class ImageResult
+{
+    public string Url { get; set; }
+
+    public string Base64Data { get; set; }
+
+    public string RevisedPrompt { get; set; }
+
+    /// <summary>
+    /// Returns the
+    /// </summary>
+    /// <returns></returns>
+    public byte[] GetBytesFromBase64()
+    {
+        if (string.IsNullOrEmpty(Base64Data)) return default;
+        return Convert.FromBase64String(Base64Data);
+    }
+
+    /// <summary>
+    /// Saves the image stored in Base64Data to a file.
+    /// </summary>
+    /// <returns></returns>
+    public bool SaveFileFromBase64(string filename = null)
+    {
+        var bytes = GetBytesFromBase64();
+        if (bytes == null) return false;    
+
+        if (string.IsNullOrEmpty(filename))
+        {            
+            filename = new ImagePrompt().GetImageFilename(); 
+        }
+
+        try
+        {
+            File.WriteAllBytes(filename, bytes);
+        }catch
+        {
+            return false;
+        }
+
+        return true;
+    }
+
+
+    /// <summary>
+    /// Retrieves bytes from the image URL or null if it's
+    /// not available.
+    /// </summary>
+    public async Task<byte[]> DownloadBytesFromUrl()
+    {
+        if (string.IsNullOrEmpty(Url)) return default;
+        try
+        {
+            return await HttpUtils.HttpRequestBytesAsync(Url);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    public async Task<bool> DownloadFileFromUrl(string targetFilename)
+    {
+        if (string.IsNullOrEmpty(Url)) return false;
+        try
+        {
+            string filename = await HttpUtils.DownloadImageToFileAsync(Url, targetFilename);
+            if (string.IsNullOrEmpty(filename))
+                return false;
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+
+    public async Task<byte[]> DownloadBytes()
+    {
+        if (string.IsNullOrEmpty(Base64Data) && string.IsNullOrEmpty(Url))
+            return null;
+            
+        if (string.IsNullOrEmpty(Base64Data))
+            return await DownloadBytesFromUrl();
+
+        var imageBytes = GetBytesFromBase64();
+
+        if (imageBytes == null) return null;
+
+        return imageBytes;
+    }
+}
+

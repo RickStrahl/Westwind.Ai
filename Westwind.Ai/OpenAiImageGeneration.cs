@@ -1,7 +1,6 @@
 ﻿using System.Net.Http.Headers;
 using System.Text;
 using Newtonsoft.Json;
-using Westwind.Utilities;
 using System.Text.RegularExpressions;
 
 namespace Westwind.Ai;
@@ -20,13 +19,18 @@ public class OpenAiImageGeneration
         ApiKey = apiKey;            
     }
 
+    #region Image Generation API Calls
+
     /// <summary>
     /// Generate an image from the provided prompt
     /// </summary>
     /// <param name="prompt">Prompt text for image to create</param>
     /// <param name="createImageFile">if true creates an image file and saves it into the OpanAiAddin\Images folder</param>
+    /// <param name="outputFormat">determines whether result is returned as url or base64 data</param>
     /// <returns></returns>
-    public async Task<bool> Generate(ImagePrompt prompt, bool createImageFile = false)
+    public async Task<bool> Generate(ImagePrompt prompt, 
+        bool createImageFile = false,
+        ImageGenerationOutputFormats outputFormat = ImageGenerationOutputFormats.Url)
     {
         // structure for posting to the API
         var requiredImage = new ImageRequest()
@@ -36,15 +40,17 @@ public class OpenAiImageGeneration
             size = prompt.ImageSize,
             model = prompt.Model,
             style = prompt.ImageStyle,
-            quality = prompt.ImageQuality
+            quality = prompt.ImageQuality,
+            response_format = outputFormat == ImageGenerationOutputFormats.Base64 ? "b64_json" : "url"
         };
 
-        var imglink = new List<string>();
+        var imglink = new List<ImageResult>();
         var response = new ImageResults();
 
         using (var client = new HttpClient())
         {
             var json = JsonConvert.SerializeObject(requiredImage);
+
             client.DefaultRequestHeaders.Clear();
             client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", ApiKey);
             var message = await client.PostAsync("https://api.openai.com/v1/images/generations", new StringContent(json, Encoding.UTF8, "application/json"));
@@ -55,12 +61,15 @@ public class OpenAiImageGeneration
 
                 foreach (var url in response.data)
                 {
-                    imglink.Add(url.url);
+                    var res = new ImageResult()
+                    {
+                        Url = url.url,
+                        Base64Data = url.b64_json,
+                        RevisedPrompt = url.revised_prompt
+                    };
+                    imglink.Add(res);
                 }
                 prompt.ImageUrls = imglink.ToArray();
-                prompt.RevisedPrompt = response.data[0].revised_prompt;
-                if (prompt.Prompt == prompt.RevisedPrompt)
-                    prompt.RevisedPrompt = null;
 
                 if (createImageFile)
                 {
@@ -76,34 +85,36 @@ public class OpenAiImageGeneration
                 }
                 return true;
             }
-            else
+
+            if (message.StatusCode == System.Net.HttpStatusCode.BadRequest)
             {
-                if (message.StatusCode == System.Net.HttpStatusCode.BadRequest)
+                if (message.Content.Headers.ContentLength > 0 && message.Content.Headers.ContentType?.ToString() == "application/json")
                 {
-                    if (message.Content.Headers.ContentLength > 0 && message.Content.Headers.ContentType?.ToString() == "application/json")
-                    {
-                        json = await message.Content.ReadAsStringAsync();
-                        var error = JsonConvert.DeserializeObject<dynamic>(json);                            
-                        string msg = error.error?.message;
-                        //string code = error.error?.code;
+                    json = await message.Content.ReadAsStringAsync();
+                    var error = JsonConvert.DeserializeObject<dynamic>(json);
+                    string msg = error.error?.message;
+                    //string code = error.error?.code;
 
-                        SetError($"Image generation failed: {msg}");
-                    }
+                    SetError($"Image generation failed: {msg}");
                 }
-
-                return false;
             }
-        }            
-        //	return Json(response);
+
+            return false;
+
+        }
+        
+        
         //	curl https://api.openai.com/v1/images/generations \
         //  -H "Content-Type: application/json" \
         //  -H "Authorization: Bearer $OPENAI_API_KEY" \
         //  -d '{
-        //
-        //	"model": "dall-e-3",
+        //	  "model": "dall-e-3",
         //    "prompt": "a white siamese cat",
         //    "n": 1,
-        //    "size": "1024x1024"
+        //    "size": "1024x1024",
+        //    "model": "dall-e-3",
+        //    "style": "vivid",
+        //    "quality": "standard"       
         //  }
 
     }
@@ -115,7 +126,9 @@ public class OpenAiImageGeneration
     /// <param name="prompt"></param>
     /// <param name="createImageFile"></param>
     /// <returns></returns>
-    public async Task<bool> CreateVariation(ImagePrompt prompt, bool createImageFile = false)
+    public async Task<bool> CreateVariation(ImagePrompt prompt, 
+        bool createImageFile = false,
+        ImageGenerationOutputFormats outputFormat = ImageGenerationOutputFormats.Url)
     {
         var imageFile = prompt.VariationImageFilePath;
         if (string.IsNullOrEmpty(imageFile) || !File.Exists(imageFile))
@@ -124,7 +137,7 @@ public class OpenAiImageGeneration
             return false;
         }
 
-        var imglink = new List<string>();
+        var imglink = new List<ImageResult>();
 
         var ext = Path.GetExtension(imageFile).ToLower();
         var filename = Path.GetFileName(imageFile);
@@ -146,6 +159,8 @@ public class OpenAiImageGeneration
                 //formContent.Add(new StringContent(prompt.Model), "model");
                 formContent.Add(new StringContent(prompt.ImageSize), "size");
 
+                formContent.Add(new StringContent(outputFormat == ImageGenerationOutputFormats.Url ? "url" : "b64_json"), "response_format");
+
                 message = await client.PostAsync("https://api.openai.com/v1/images/variations", formContent);
             }
 
@@ -156,8 +171,13 @@ public class OpenAiImageGeneration
 
                 foreach (var url in response.data)
                 {
-                    imglink.Add(url.url);
-                    prompt.RevisedPrompt = url.revised_prompt;
+                    var result = new ImageResult()
+                    {
+                        Url = url.url,
+                        Base64Data = url.b64_json,
+                        RevisedPrompt = url.revised_prompt
+                    };
+                    imglink.Add(result);
                 }                    
                 prompt.ImageUrls = imglink.ToArray();
 
@@ -192,19 +212,7 @@ public class OpenAiImageGeneration
             return false;
         }
 
-    }
-
-
-
-    public async Task<byte[]> DownloadImage(string url)
-    {
-            
-            
-
-        return await HttpUtils.HttpRequestBytesAsync(url);
-    }
-
-        
+    }           
 
     // ReSharper disable once ArrangeModifiersOrder
     public async static Task<bool> ValidateApiKeyAsync(string openAiKey)
@@ -232,6 +240,7 @@ public class OpenAiImageGeneration
         return response.IsSuccessStatusCode;
     }
 
+    #endregion
 
     #region Error
 
@@ -267,20 +276,22 @@ public class OpenAiImageGeneration
             ErrorMessage = e.Message;
         }
     }
-
     #endregion
 }
+
+#region OpenAI JSON Structures
 
 /// <summary>
 /// Open AI Image Request object in the format the API expects
 /// </summary>
-public class ImageRequest
+internal class ImageRequest
 {
     public string prompt { get; set; }
 
     public string model { get; set; } = "dall-e-3";
 
     public int n { get; set; } = 1;
+
     public string size { get; set; } = "1024x1024";
 
     public string response_format { get; set; } = "url";  // b64_json
@@ -289,16 +300,26 @@ public class ImageRequest
     public string quality { get; set; } = "standard";
 }
 
-public class ImageUrls
+internal class ImageUrls
 {
     public string url { get; set; }
+
+    public string b64_json { get; set; }
 
     public string revised_prompt { get; set; }
 }
 
-public class ImageResults
+internal class ImageResults
 {
     public long created { get; set; }
     public List<ImageUrls> data { get; set; }
         
 }
+
+public enum ImageGenerationOutputFormats
+{ 
+    Url, 
+    Base64
+}
+
+#endregion

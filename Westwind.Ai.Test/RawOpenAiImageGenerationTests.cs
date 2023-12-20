@@ -15,6 +15,9 @@ namespace Westwind.Ai.Test
 
             // from _testconfiguration-nogit.json file
             OpenAiApiKey = TestConfiguration.Current.OpenAiApiKey;
+
+            // override the default image storage path (static app wide)
+            ImagePrompt.DefaultImageStoragePath = @"images/GeneratedImages";
         }
 
         [TestMethod]
