@@ -176,6 +176,7 @@ public class ImagePrompt : INotifyPropertyChanged
         }
     }
 
+    [JsonIgnore]
     public string RevisedPrompt
     {
         get 

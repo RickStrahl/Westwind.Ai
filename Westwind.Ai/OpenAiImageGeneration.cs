@@ -215,7 +215,7 @@ public class OpenAiImageGeneration
     }           
 
     // ReSharper disable once ArrangeModifiersOrder
-    public async static Task<bool> ValidateApiKeyAsync(string openAiKey)
+    public async static Task<bool> ValidateApiKey(string openAiKey)
     {
 
         var key = openAiKey;

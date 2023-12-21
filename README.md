@@ -2,7 +2,7 @@
 
 This is the code sample library for the article at:
 
- * [Article Link Here]()
+ * [Integrating OpenAI image generation into a .NET Application](https://weblog.west-wind.com/posts/2023/Dec/21/Integrating-OpenAI-image-generation-into-your-NET-Application)
  
 This library uses the OpenAI API via REST calls to retrieve image prompts as images and provide a number of support features for downloading and storing image prompts and images for later review and possible re-use. 
 

@@ -54,6 +54,8 @@ public class ImageGenerationTests
 
         string imageFile = imagePrompt.ImageFilePath;
         Console.WriteLine(imageFile);
+
+        Console.WriteLine(JsonSerializationUtils.Serialize(imagePrompt, formatJsonOutput: true));
     }
 
     [TestMethod]
