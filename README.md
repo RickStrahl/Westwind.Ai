@@ -8,6 +8,26 @@ This is the code sample library for the article at:
  
 This library uses the OpenAI API via REST calls to retrieve image prompts as images and provide a number of support features for downloading and storing image prompts and images for later review and possible re-use. 
 
+## Configuration
+To run the tests you'll need to provide your OpenAI or Azure Credentials. To do this:
+
+* Make sure you have an account on OpenAI (see article) or Azure
+* In the Test project create a file called `__TestConfiguration-NoGit.json`
+* Put the following into the file:
+
+```json
+{
+  "OpenAiApiKey": "<OpenAiKey>",
+  "AzureOpenAiEndpoint": "<Azure EndPoint>",
+  "AzureOpenAiApiKey": "<Azure API Key>"
+}
+```
+
+### Azure OpenAI
+Azure Open AI doesn't work great with Dall-E and requires use of a preview version of the API. You also have to create a custom Azure AI Deployment and **it has to be in a specific Azure Region: *Sweden Central*.** Once you've created an Open AI deployment in this region you can pick up the EndPoint URL and API key to run the Azure test.
+
+All but one of the tests use OpenAI - you can switch those tests by passing in the two parameter constructor that passes both the endpoint url and key.
+
 ## How it works
 The library is easy to use:
 
