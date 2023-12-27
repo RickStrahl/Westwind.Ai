@@ -9,7 +9,9 @@ This is the code sample library for the article at:
 This library uses the OpenAI API via REST calls to retrieve image prompts as images and provide a number of support features for downloading and storing image prompts and images for later review and possible re-use. 
 
 ## Configuration
-To run the tests you'll need to provide your OpenAI or Azure Credentials. To do this:
+To run the tests you'll need to provide your OpenAI or Azure Credentials (you only need one). 
+
+To do this:
 
 * Make sure you have an account on OpenAI (see article) or Azure
 * In the Test project create a file called `__TestConfiguration-NoGit.json`
