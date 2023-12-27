@@ -2,6 +2,10 @@
 using System.Text;
 using Newtonsoft.Json;
 using System.Text.RegularExpressions;
+using Westwind.Utilities;
+using System.Security.Cryptography.X509Certificates;
+using System.Runtime.CompilerServices;
+using System.Net;
 
 namespace Westwind.Ai;
 
@@ -12,12 +16,48 @@ namespace Westwind.Ai;
 public class OpenAiImageGeneration
 {
 
-    public string ApiKey { get; set; }
+    public string OpenAiApiKey { get; set; }
 
-    public OpenAiImageGeneration(string apiKey)
+    /// <summary>
+    /// {0} = OpenAI API Endpoing Segment (ie. the operation)
+    /// </summary>
+    public string OpenAiEndPointTemplate { get; set; } = "https://api.openai.com/v1/{0}";
+
+
+    public string AzureOpenAiEndPoint { get; set;  }
+
+    public string AzureOpenAiApiKey { get; set; }
+
+    /// <summary>
+    /// {0} = AzureOpenAiEndPoint
+    /// {1} = OpenAI API Endpoing Segment (ie. the operation)
+    /// {2} = AzureOpenAi PreviewVersion
+    /// </summary>
+    public string AzureOpenAiEndPointTemplate { get; set; } = "{0}{1}?api-version={2}"; 
+
+    public string AzureOpenAiPreviewVersion { get; set; } = "2023-12-01-preview";
+
+    protected bool IsAzure => !string.IsNullOrEmpty(AzureOpenAiEndPoint);
+
+    /// <summary>
+    /// Optional Proxy
+    /// </summary>
+    public WebProxy Proxy { get; set; }
+
+    
+    public OpenAiImageGeneration(string openAiApiKey)  
     {
-        ApiKey = apiKey;            
+        OpenAiApiKey = openAiApiKey;            
     }
+
+    public OpenAiImageGeneration(string azureOpenAiEndPoint, string azureOpenAiApiKey, string azurePreviewVersion = null)
+    {
+        AzureOpenAiEndPoint = StringUtils.TerminateString(azureOpenAiEndPoint,"/");
+        AzureOpenAiApiKey = azureOpenAiApiKey;
+        if(!string.IsNullOrEmpty(azurePreviewVersion))
+            AzureOpenAiPreviewVersion = azurePreviewVersion;
+    }
+
 
     #region Image Generation API Calls
 
@@ -44,19 +84,19 @@ public class OpenAiImageGeneration
             response_format = outputFormat == ImageGenerationOutputFormats.Base64 ? "b64_json" : "url"
         };
 
-        var imglink = new List<ImageResult>();
-        var response = new ImageResults();
+        var imageResults = new List<ImageResult>();
+        ImageResults response;
 
-        using (var client = new HttpClient())
+       
+        using (var client = GetHttpClient())
         {
-            var json = JsonConvert.SerializeObject(requiredImage);
-
-            client.DefaultRequestHeaders.Clear();
-            client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", ApiKey);
-            var message = await client.PostAsync("https://api.openai.com/v1/images/generations", new StringContent(json, Encoding.UTF8, "application/json"));
+            var json = JsonConvert.SerializeObject(requiredImage);            
+            string endPointUrl = GetEndpointUrl("images/generations");
+            var message = await client.PostAsync(endPointUrl, new StringContent(json, Encoding.UTF8, "application/json"));
+            
             if (message.IsSuccessStatusCode)
             {
-                var content = await message.Content.ReadAsStringAsync();
+                var content = await message.Content.ReadAsStringAsync();         
                 response = JsonConvert.DeserializeObject<ImageResults>(content);
 
                 foreach (var url in response.data)
@@ -67,9 +107,9 @@ public class OpenAiImageGeneration
                         Base64Data = url.b64_json,
                         RevisedPrompt = url.revised_prompt
                     };
-                    imglink.Add(res);
+                    imageResults.Add(res);
                 }
-                prompt.ImageUrls = imglink.ToArray();
+                prompt.ImageUrls = imageResults.ToArray();
 
                 if (createImageFile)
                 {
@@ -84,25 +124,19 @@ public class OpenAiImageGeneration
                     }
                 }
                 return true;
-            }
-
-            if (message.StatusCode == System.Net.HttpStatusCode.BadRequest)
-            {
-                if (message.Content.Headers.ContentLength > 0 && message.Content.Headers.ContentType?.ToString() == "application/json")
-                {
-                    json = await message.Content.ReadAsStringAsync();
-                    var error = JsonConvert.DeserializeObject<dynamic>(json);
-                    string msg = error.error?.message;
-                    //string code = error.error?.code;
-
-                    SetError($"Image generation failed: {msg}");
-                }
-            }
-
-            return false;
-
-        }
+            } 
         
+
+            if (message.Content.Headers.ContentLength > 0 && message.Content.Headers.ContentType?.ToString() == "application/json")
+            {
+                json = await message.Content.ReadAsStringAsync();
+                var error = JsonConvert.DeserializeObject<dynamic>(json);
+                string msg = error.error?.message;                    
+                SetError($"Image generation failed: {msg}");
+            }
+            
+            return false;
+        }
         
         //	curl https://api.openai.com/v1/images/generations \
         //  -H "Content-Type: application/json" \
@@ -118,6 +152,7 @@ public class OpenAiImageGeneration
         //  }
 
     }
+
 
 
     /// <summary>
@@ -136,17 +171,14 @@ public class OpenAiImageGeneration
             SetError("Input image file not found for variation.");
             return false;
         }
-
+        
         var imglink = new List<ImageResult>();
 
         var ext = Path.GetExtension(imageFile).ToLower();
         var filename = Path.GetFileName(imageFile);
 
-        using (var client = new HttpClient())
+        using (var client = GetHttpClient())
         {
-            client.DefaultRequestHeaders.Clear();
-            client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", ApiKey);
-
             var formContent = new MultipartFormDataContent();
             HttpResponseMessage message;
             using (var stream = File.OpenRead(imageFile))
@@ -161,7 +193,8 @@ public class OpenAiImageGeneration
 
                 formContent.Add(new StringContent(outputFormat == ImageGenerationOutputFormats.Url ? "url" : "b64_json"), "response_format");
 
-                message = await client.PostAsync("https://api.openai.com/v1/images/variations", formContent);
+                var endPointUrl = GetEndpointUrl("images/variations");
+                message = await client.PostAsync(endPointUrl, formContent);
             }
 
             if (message.IsSuccessStatusCode)
@@ -178,7 +211,7 @@ public class OpenAiImageGeneration
                         RevisedPrompt = url.revised_prompt
                     };
                     imglink.Add(result);
-                }                    
+                }
                 prompt.ImageUrls = imglink.ToArray();
 
                 if (createImageFile)
@@ -196,17 +229,14 @@ public class OpenAiImageGeneration
                 return true;
             }
 
-            if (message.StatusCode == System.Net.HttpStatusCode.BadRequest)
+            if (message.Content.Headers.ContentLength > 0 && message.Content.Headers.ContentType?.ToString() == "application/json")
             {
-                if (message.Content.Headers.ContentLength > 0 && message.Content.Headers.ContentType?.ToString() == "application/json")
-                {
-                    var json = await message.Content.ReadAsStringAsync();
-                    var error = JsonConvert.DeserializeObject<dynamic>(json);
-                    string msg = error.error?.message;
-                    //string code = error.error?.code;
+                var json = await message.Content.ReadAsStringAsync();
+                var error = JsonConvert.DeserializeObject<dynamic>(json);
+                string msg = error.error?.message;
+                //string code = error.error?.code;
 
-                    SetError($"Image generation failed: {msg}");
-                }
+                SetError($"Image generation failed: {msg}");
             }
 
             return false;
@@ -215,19 +245,21 @@ public class OpenAiImageGeneration
     }           
 
     // ReSharper disable once ArrangeModifiersOrder
-    public async static Task<bool> ValidateApiKey(string openAiKey)
+    public async Task<bool> ValidateApiKey(string openAiKey)
     {
 
         var key = openAiKey;
         if (!Regex.IsMatch(key, @"^sk-[a-zA-Z0-9]{32,}$"))
             return false;
 
-        using var client = new HttpClient();
+
+        using var client = GetHttpClient();
         client.Timeout = TimeSpan.FromSeconds(3);
         client.DefaultRequestHeaders.Clear();
                         
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer",key);
 
+        var endPointUrl =  GetEndpointUrl("models");        
         HttpResponseMessage response;
         try
         {                
@@ -240,9 +272,56 @@ public class OpenAiImageGeneration
         return response.IsSuccessStatusCode;
     }
 
+
+    /// <summary>
+    /// Retrieves an endpoint based on the current configuration
+    /// </summary>
+    /// <param name="operationSegment">
+    /// Segment that specifies the operation:
+    ///     * images/generations
+    ///     * images/variations
+    ///     * models
+    /// </param>
+    /// <returns></returns>
+    public string GetEndpointUrl(string operationSegment)
+    {
+        if (!string.IsNullOrEmpty(AzureOpenAiEndPoint))
+        {
+            return string.Format(AzureOpenAiEndPointTemplate,
+                AzureOpenAiEndPoint,
+                operationSegment,
+                AzureOpenAiPreviewVersion);
+        }
+
+        return string.Format(OpenAiEndPointTemplate, operationSegment);
+    }
+
+
+    /// <summary>
+    /// Creates an instance of the HttpClient and sets the API Key
+    /// in the headers.
+    /// </summary>
+    /// <returns>Configured HttpClient instance</returns>
+    public HttpClient GetHttpClient(HttpClientHandler handler = null)
+    {
+        handler ??= new HttpClientHandler()
+        {
+            Proxy = Proxy
+        };
+        var client = new HttpClient(handler);
+        
+        client.DefaultRequestHeaders.Clear();
+        if (IsAzure)
+            client.DefaultRequestHeaders.Add("api-key", AzureOpenAiApiKey);
+        else
+            client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", OpenAiApiKey);
+
+        return client;
+    }
+
     #endregion
 
-    #region Error
+        #region Error
 
     public string ErrorMessage { get; set; }
 

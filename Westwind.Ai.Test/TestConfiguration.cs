@@ -14,8 +14,8 @@ public class TestConfiguration
 
     public string OpenAiApiKey { get; set; }
 
-    public string AzureConnectionString { get; set; }
-    public string AzureApiKey { get; set; }
+    public string AzureOpenAiEndPoint { get; set; }
+    public string AzureOpenAiApiKey { get; set; }
 
 
     
