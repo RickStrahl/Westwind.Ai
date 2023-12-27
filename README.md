@@ -1,5 +1,7 @@
 # Westwind.Ai OpenAI Image Generation Sample
 
+<img src='Icon.png' width=200 />
+
 This is the code sample library for the article at:
 
  * [Integrating OpenAI image generation into a .NET Application](https://weblog.west-wind.com/posts/2023/Dec/21/Integrating-OpenAI-image-generation-into-your-NET-Application)
@@ -19,8 +21,12 @@ You can generate images and let the API return a url to the image which you can 
 [TestMethod]
 public async Task ImageGenerationToUrlTest()
 {
-    var generator = new OpenAiImageGeneration(OpenAiApiKey);
-
+    var generator = new OpenAiImageGeneration(Configuration.OpenAiApiKey);
+    
+    // var generator = new OpenAiImageGeneration(
+    //    Configuration.AzureOpenAiEndpointUrl,
+    //    Configuration.AzureOpenAiApiKey);
+       
     // create a prompt with input options
     var imagePrompt = new ImagePrompt()
     {
